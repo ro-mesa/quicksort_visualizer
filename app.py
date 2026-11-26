@@ -391,8 +391,14 @@ def trigger_sort_run(records, direction):
     st.session_state["qs_steps"] = execution_steps
     st.session_state["qs_sorted_result"] = sorted_result
     st.session_state["qs_final_stats"] = final_stats
+    # qs_step_index is the source of truth. The widget key is synchronized
+    # immediately before the slider is rendered, never here.
     st.session_state["qs_step_index"] = 0
-    st.session_state["qs_history_slider"] = 0
+
+
+def sync_step_index_from_slider():
+    """Copy a user-selected slider position into the playback state."""
+    st.session_state["qs_step_index"] = st.session_state["qs_history_slider"]
 
 
 # ============================================================
@@ -472,10 +478,10 @@ if st.session_state["qs_menu_open"]:
         st.markdown('<div style="border-bottom:1px solid #EEF1F6; margin:10px 0 12px 0;"></div>', unsafe_allow_html=True)
 
         presets = [
-            ("Best Case (Balanced Split)", "40, 20, 60, 10, 30, 50, 70"),
-            ("Average Case (Random)", "50, 25, 75, 12, 37, 62, 88"),
+            ("Best Case", "40, 20, 60, 10, 30, 50, 70"),
+            ("Average Case", "50, 25, 75, 12, 37, 62, 88"),
             ("Worst-Case Input (Sorted)", "10, 20, 30, 40, 50, 60, 70"),
-            ("Duplicate-Heavy (3-Way)", "40, 20, 40, 80, 40, 20, 80, 40"),
+            ("Duplicate Handling", "40, 20, 40, 80, 40, 20, 80, 40"),
             ("Reverse-Sorted Array", "90, 75, 60, 45, 30, 15, 5"),
         ]
         for idx, (label, preset_str) in enumerate(presets):
@@ -510,6 +516,18 @@ if st.session_state["qs_menu_open"]:
 
 if records and "qs_steps" not in st.session_state:
     trigger_sort_run(records, st.session_state["qs_direction"])
+
+# Synchronize the widget-owned key before st.slider is instantiated on this
+# rerun. This also clamps the active step when a new step array has a new size.
+if "qs_steps" in st.session_state and st.session_state["qs_steps"]:
+    _qs_max_step = max(0, len(st.session_state["qs_steps"]) - 1)
+    st.session_state["qs_step_index"] = max(
+        0, min(st.session_state.get("qs_step_index", 0), _qs_max_step)
+    )
+    st.session_state["qs_history_slider"] = st.session_state["qs_step_index"]
+else:
+    st.session_state.setdefault("qs_step_index", 0)
+    st.session_state.setdefault("qs_history_slider", 0)
 
 
 # ============================================================
@@ -553,37 +571,30 @@ if "qs_steps" in st.session_state and st.session_state["qs_steps"]:
         if st.button("⏮ Prev", key="qs_prev", disabled=current_index == 0, use_container_width=True):
             new_idx = max(0, current_index - 1)
             st.session_state["qs_step_index"] = new_idx
-            st.session_state["qs_history_slider"] = new_idx
             st.rerun()
     with ctrl2:
         if st.button("Next ⏭", key="qs_next", type="primary", disabled=current_index >= len(steps) - 1, use_container_width=True):
             new_idx = min(len(steps) - 1, current_index + 1)
             st.session_state["qs_step_index"] = new_idx
-            st.session_state["qs_history_slider"] = new_idx
             st.rerun()
     with ctrl3:
         if st.button("↺ Reset", key="qs_reset", use_container_width=True):
             st.session_state["qs_step_index"] = 0
-            st.session_state["qs_history_slider"] = 0
             st.rerun()
     with ctrl4:
         if st.button("⏭ Finish", key="qs_finish", use_container_width=True):
             last_idx = len(steps) - 1
             st.session_state["qs_step_index"] = last_idx
-            st.session_state["qs_history_slider"] = last_idx
             st.rerun()
     with ctrl_scrub:
-        selected_step = st.slider(
+        st.slider(
             "Step Scrubber",
-            0,
-            len(steps) - 1,
-            current_index,
+            min_value=0,
+            max_value=max(0, len(steps) - 1),
             key="qs_history_slider",
+            on_change=sync_step_index_from_slider,
             label_visibility="collapsed",
         )
-        if selected_step != current_index:
-            st.session_state["qs_step_index"] = selected_step
-            st.rerun()
 
     # Single Unified Metrics Bar
     stats = current_step["stats"]
